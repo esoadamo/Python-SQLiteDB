@@ -6,7 +6,7 @@ long_description = "None yet"
 
 setuptools.setup(
     name="sqlitedb",
-    version="0.0.1",
+    version="0.9.1",
     author="Adam Hlavacek",
     author_email="git@adamhlavacek.com",
     description="A thread-safe SQLite database",
