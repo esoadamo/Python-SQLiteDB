@@ -1,7 +1,8 @@
 import sqlite3
 import queue
+import threading
 
-from threading import Thread, Lock, main_thread
+from threading import Thread, Lock
 from typing import NamedTuple, Tuple, Union, Optional, List, Callable, Dict
 from pathlib import Path
 
@@ -25,8 +26,13 @@ DBCommand = Union[DBCommandCommit, DBCommandSQL, DBCommandQuit]
 DBRespond = Optional[Union[Exception, bool, DBResult]]
 
 
-def is_main_thread_running() -> bool:
-    return main_thread().is_alive()
+def are_not_only_db_threads_running() -> bool:
+    print("test")
+    for t in threading.enumerate():
+        print(t.getName())
+        if t.is_alive() and t.getName() != "thread-sqlitedb-worker":
+            return True
+    return False
 
 
 class SQLiteDB:
@@ -36,13 +42,13 @@ class SQLiteDB:
 
     def __init__(self,
                  file_path: Union[str, Path],
-                 autoquit_test: Optional[Callable[[], bool]] = is_main_thread_running
+                 autoquit_test: Optional[Callable[[], bool]] = are_not_only_db_threads_running
                  ) -> None:
         """
         Initialize the static database
         :param file_path: path to the saved file with database
         :param autoquit_test: function called to determine if the database should exit
-        by default is the database terminated together with main thread, pass None to disable
+        by default is the database terminated when the DB threads are last active threads, pass None to disable
         :return: None
         """
         if type(file_path) is str:
@@ -106,7 +112,7 @@ class SQLiteDB:
             self.exited = True
 
         # start the background thread with database connection
-        Thread(target=thread_db_connection).start()
+        Thread(target=thread_db_connection, name="thread-sqlitedb-worker").start()
 
     def execute(self, command: str, data: Tuple = ()) -> DBResult:
         """

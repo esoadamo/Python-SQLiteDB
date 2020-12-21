@@ -1,18 +1,29 @@
 import json
 from pathlib import Path
 from random import choice
-from typing import Union, Optional, Callable, Dict, Any
+from typing import Union, Optional, Dict, Any, Set, Iterator, Tuple
 
-from .sqlitedb import SQLiteDB, is_main_thread_running
+from .sqlitedb import SQLiteDB
 
 
 class IndexedDBManager:
-    def __init__(self,
-                 file: Union[Path, str],
-                 autoquit_test: Optional[Callable[[], bool]] = is_main_thread_running
-                 ) -> None:
-        self.sqlitedb = SQLiteDB(file, autoquit_test)
+    def __init__(self, file: Union[Path, str]) -> None:
+        self.sqlitedb = SQLiteDB(file)
         self.__db_cache: Dict[str, "IndexedDB"] = {}
+
+    def keys(self) -> Set[str]:
+        tables = self.sqlitedb.execute("SELECT tbl_name FROM sqlite_master WHERE type='table' AND tbl_name LIKE 'db_%'")
+        return {table[0][3:] for table in tables}
+
+    def values(self) -> Iterator["IndexedDB"]:
+        return map(lambda x: x[1], self.items())
+
+    def items(self) -> Iterator[Tuple[str, "IndexedDB"]]:
+        for k in self.keys():
+            yield k, self[k]
+
+    def __str__(self):
+        return str({k: str(v) for k, v in self.items()})
 
     def __getitem__(self, item: str) -> "IndexedDB":
         if len(self.__db_cache) > 128:
@@ -20,6 +31,18 @@ class IndexedDBManager:
         if item not in self.__db_cache:
             self.__db_cache[item] = IndexedDB(self, item)
         return self.__db_cache[item]
+
+    def __delitem__(self, key: str) -> None:
+        self[key].drop_db()
+
+    def __contains__(self, item: str) -> bool:
+        return item in self.keys()
+
+    def __del__(self) -> None:
+        self.sqlitedb.quit()
+
+    def __bool__(self) -> bool:
+        return not not self.keys()
 
 
 class IndexedDB:
@@ -32,11 +55,27 @@ class IndexedDB:
     def get(self, item: str, default: Optional[Any] = None) -> Any:
         try:
             return self[item]
-        except IndexError:
+        except KeyError:
             return default
 
     def key_exists(self, item: str) -> bool:
         return not not self.__manager.sqlitedb.execute(f"SELECT value FROM {self.__table} WHERE key=?", (item,))
+
+    def keys(self) -> Set[str]:
+        return set(map(lambda x: x[0], self.__manager.sqlitedb.execute(f"SELECT key FROM {self.__table}")))
+
+    def values(self) -> Iterator[Any]:
+        return map(lambda x: x[1], self.items())
+
+    def items(self) -> Iterator[Tuple[str, Any]]:
+        for k in self.keys():
+            yield k, self[k]
+
+    def drop_db(self) -> None:
+        self.__manager.sqlitedb.execute(f"DROP TABLE {self.__table}")
+
+    def __str__(self):
+        return str({k: str(v) for k, v in self.items()})
 
     def __getitem__(self, item: str) -> Any:
         if self.__test_supports_jsonization():
@@ -52,7 +91,7 @@ class IndexedDB:
                 value = json.loads(value)
 
             return value
-        raise IndexError
+        raise KeyError
 
     def __setitem__(self, key: str, value: Any) -> None:
         jsonize = type(value) is not str
@@ -83,6 +122,12 @@ class IndexedDB:
         self.__manager.sqlitedb.execute(
             f"DELETE FROM {self.__table} WHERE `key`=?;", (key,)
         )
+
+    def __contains__(self, item: str):
+        return item in self.keys()
+
+    def __bool__(self) -> bool:
+        return not not self.keys()
 
     def __create_table(self) -> None:
         if self.__table_created:
