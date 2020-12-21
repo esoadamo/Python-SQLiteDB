@@ -22,8 +22,11 @@ class IndexedDBManager:
         for k in self.keys():
             yield k, self[k]
 
+    def to_dict(self) -> Dict[str, Any]:
+        return {k: v.to_dict() for k, v in self.items()}
+
     def __str__(self):
-        return str({k: str(v) for k, v in self.items()})
+        return str(self.to_dict())
 
     def __getitem__(self, item: str) -> "IndexedDB":
         if len(self.__db_cache) > 128:
@@ -74,8 +77,11 @@ class IndexedDB:
     def drop_db(self) -> None:
         self.__manager.sqlitedb.execute(f"DROP TABLE {self.__table}")
 
+    def to_dict(self) -> Dict[str, Any]:
+        return {k: v for k, v in self.items()}
+
     def __str__(self):
-        return str({k: str(v) for k, v in self.items()})
+        return str(self.to_dict())
 
     def __getitem__(self, item: str) -> Any:
         if self.__test_supports_jsonization():
