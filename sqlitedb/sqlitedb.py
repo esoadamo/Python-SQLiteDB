@@ -27,9 +27,7 @@ DBRespond = Optional[Union[Exception, bool, DBResult]]
 
 
 def are_not_only_db_threads_running() -> bool:
-    print("test")
     for t in threading.enumerate():
-        print(t.getName())
         if t.is_alive() and t.getName() != "thread-sqlitedb-worker":
             return True
     return False
@@ -109,6 +107,7 @@ class SQLiteDB:
                     pass
 
             connection.commit()
+            connection.close()
             self.exited = True
 
         # start the background thread with database connection
