@@ -53,8 +53,8 @@ class SQLiteDB:
             self.memory_db = False
 
         self.exited = False
-        self.__queue_in: queue.Queue[DBCommand] = queue.Queue()  # operations to perform
-        self.__queue_out: queue.Queue[DBRespond] = queue.Queue()  # data to return
+        self.__queue_in: queue.Queue[DBCommand] = queue.Queue(maxsize=1024)  # operations to perform
+        self.__queue_out: queue.Queue[DBRespond] = queue.Queue(maxsize=1024)  # data to return
         self.__db_lock = Lock()
 
         def thread_db_keep_running() -> bool:
@@ -82,7 +82,7 @@ class SQLiteDB:
 
             while thread_db_keep_running():
                 try:
-                    command: DBCommand = self.__queue_in.get(timeout=5)
+                    command: DBCommand = self.__queue_in.get(timeout=2)
                     try:
                         # the present key determines what time of data this is
                         if type(command) is DBCommandSQL:  # perform SQL query
