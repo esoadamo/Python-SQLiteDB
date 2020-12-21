@@ -1,10 +1,7 @@
 import sqlite3
-import queue
-import threading
-
-from threading import Thread, Lock
-from typing import NamedTuple, Tuple, Union, Optional, List, Callable, Dict
 from pathlib import Path
+from threading import Lock
+from typing import NamedTuple, Tuple, Union, Optional, List, Dict, Generator
 
 
 class DBCommandSQL(NamedTuple):
@@ -26,29 +23,15 @@ DBCommand = Union[DBCommandCommit, DBCommandSQL, DBCommandQuit]
 DBRespond = Optional[Union[Exception, bool, DBResult]]
 
 
-def are_not_only_db_threads_running() -> bool:
-    print("test")
-    for t in threading.enumerate():
-        print(t.getName())
-        if t.is_alive() and t.getName() != "thread-sqlitedb-worker":
-            return True
-    return False
-
-
 class SQLiteDB:
     """
     Synchronized worker with the SQLite database
     """
 
-    def __init__(self,
-                 file_path: Union[str, Path],
-                 autoquit_test: Optional[Callable[[], bool]] = are_not_only_db_threads_running
-                 ) -> None:
+    def __init__(self, file_path: Union[str, Path]) -> None:
         """
         Initialize the static database
         :param file_path: path to the saved file with database
-        :param autoquit_test: function called to determine if the database should exit
-        by default is the database terminated when the DB threads are last active threads, pass None to disable
         :return: None
         """
         if type(file_path) is str:
@@ -59,21 +42,9 @@ class SQLiteDB:
             self.memory_db = False
 
         self.exited = False
-        self.__queue_in: queue.Queue[DBCommand] = queue.Queue(maxsize=1024)  # operations to perform
-        self.__queue_out: queue.Queue[DBRespond] = queue.Queue(maxsize=1024)  # data to return
         self.__db_lock = Lock()
 
-        def thread_db_keep_running() -> bool:
-            if self.exited:
-                # already exited
-                return False
-            if autoquit_test is None:
-                # no test defined, keep running
-                return True
-            # process all commands and exit if autoquit returns False
-            return autoquit_test() or not self.__queue_in.empty()
-
-        def thread_db_connection() -> None:
+        def routine_db() -> Generator[DBRespond, DBCommand, None]:
             """
             This thread runs in background and performs all operations with the database if needed
             Creates new database if not exists yet
@@ -86,33 +57,32 @@ class SQLiteDB:
                     db_dir.mkdir(parents=True, mode=0o750)
                 connection = sqlite3.connect(f"{file_path.absolute()}")
 
-            while thread_db_keep_running():
+            respond: DBRespond = None
+
+            while not self.exited:
+                command = yield respond
                 try:
-                    command: DBCommand = self.__queue_in.get(timeout=2)
-                    try:
-                        # the present key determines what time of data this is
-                        if type(command) is DBCommandSQL:  # perform SQL query
-                            db_respond = list(connection.execute(command.command, command.data))
-                        elif type(command) is DBCommandCommit:  # commit the saved data
-                            connection.commit()
-                            db_respond = True
-                        elif type(command) is DBCommandQuit:
-                            self.exited = True
-                            db_respond = True
-                        else:  # not sure what to do, just respond None
-                            db_respond = None
-                    except Exception as e:
-                        db_respond = e
-                    # return responded object
-                    self.__queue_out.put(db_respond)
-                except queue.Empty:
-                    pass
+                    # the present key determines what time of data this is
+                    if type(command) is DBCommandSQL:  # perform SQL query
+                        respond = list(connection.execute(command.command, command.data))
+                    elif type(command) is DBCommandCommit:  # commit the saved data
+                        connection.commit()
+                        respond = True
+                    elif type(command) is DBCommandQuit:
+                        self.exited = True
+                        respond = True
+                    else:  # not sure what to do, just respond None
+                        respond = None
+                except Exception as e:
+                    respond = e
 
             connection.commit()
+            connection.close()
             self.exited = True
+            yield respond
 
-        # start the background thread with database connection
-        Thread(target=thread_db_connection, name="thread-sqlitedb-worker").start()
+        self.__routine_db = routine_db()
+        next(self.__routine_db)
 
     def execute(self, command: str, data: Tuple = ()) -> DBResult:
         """
@@ -121,10 +91,8 @@ class SQLiteDB:
         :param data: tuple of data that are safely entered into the SQL command to prevent SQL injection
         :return: list of returned rows
         """
-        self.__db_lock.acquire()
-        self.__queue_in.put(DBCommandSQL(command=command, data=data))
-        respond = self.__queue_out.get()
-        self.__db_lock.release()
+        with self.__db_lock:
+            respond = self.__routine_db.send(DBCommandSQL(command=command, data=data))
         if isinstance(respond, Exception):
             raise respond
         return respond
@@ -147,10 +115,8 @@ class SQLiteDB:
         Commits the databse to the disc
         :return: None
         """
-        self.__db_lock.acquire()
-        self.__queue_in.put(DBCommandCommit(commit=True))
-        respond = self.__queue_out.get()
-        self.__db_lock.release()
+        with self.__db_lock:
+            respond = self.__routine_db.send(DBCommandCommit(commit=True))
         if isinstance(respond, Exception):
             raise respond
         return respond
@@ -160,10 +126,11 @@ class SQLiteDB:
         End the database connection
         :return: None
         """
-        self.__db_lock.acquire()
-        self.__queue_in.put(DBCommandQuit(quit=True))
-        respond = self.__queue_out.get()
-        self.__db_lock.release()
+        with self.__db_lock:
+            respond = self.__routine_db.send(DBCommandQuit(quit=True))
         if isinstance(respond, Exception):
             raise respond
         return respond
+
+    def __del__(self):
+        self.quit()
