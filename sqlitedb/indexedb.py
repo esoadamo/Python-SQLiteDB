@@ -62,9 +62,11 @@ class IndexedDB:
             return default
 
     def key_exists(self, item: str) -> bool:
+        self.__create_table()
         return not not self.__db.execute(f"SELECT value FROM {self.__table} WHERE key=?", (item,))
 
     def keys(self) -> Set[str]:
+        self.__create_table()
         return set(map(lambda x: x[0], self.__db.execute(f"SELECT key FROM {self.__table}")))
 
     def values(self) -> Iterator[Any]:
@@ -75,6 +77,7 @@ class IndexedDB:
             yield k, self[k]
 
     def drop_db(self) -> None:
+        self.__create_table()
         self.__db.execute(f"DROP TABLE {self.__table}")
 
     def to_dict(self) -> Dict[str, Any]:
@@ -84,6 +87,7 @@ class IndexedDB:
         return str(self.to_dict())
 
     def __getitem__(self, item: str) -> Any:
+        self.__create_table()
         if self.__test_supports_jsonization():
             cmd = f"SELECT value, jsonized FROM {self.__table} WHERE key=?"
         else:
@@ -100,6 +104,7 @@ class IndexedDB:
         raise KeyError
 
     def __setitem__(self, key: str, value: Any) -> None:
+        self.__create_table()
         jsonize = type(value) is not str
 
         if jsonize:
@@ -125,6 +130,7 @@ class IndexedDB:
         self.__db.commit()
 
     def __delitem__(self, key: str) -> None:
+        self.__create_table()
         self.__db.execute(
             f"DELETE FROM {self.__table} WHERE `key`=?;", (key,)
         )
@@ -149,6 +155,7 @@ class IndexedDB:
     def __test_supports_jsonization(self) -> bool:
         if self.__supports_jsonization is not None:
             return self.__supports_jsonization
+        self.__create_table()
         for _, column_name, _, _, _, _ in self.__db.execute(f"PRAGMA table_info({self.__table})"):
             if column_name == 'jsonized':
                 self.__supports_jsonization = True

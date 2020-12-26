@@ -28,7 +28,7 @@ DBRespond = Optional[Union[Exception, bool, DBResult]]
 
 def are_not_only_db_threads_running() -> bool:
     for t in threading.enumerate():
-        if t.is_alive() and t.getName() != "thread-sqlitedb-worker":
+        if t.is_alive() and not t.getName().startswith("thread-sqlitedb-worker"):
             return True
     return False
 
