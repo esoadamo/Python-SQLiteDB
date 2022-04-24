@@ -1,4 +1,6 @@
 import json
+import pickle
+from base64 import b64encode, b64decode
 from pathlib import Path
 from random import choice
 from typing import Union, Optional, Dict, Any, Set, Iterator, Tuple
@@ -95,33 +97,42 @@ class IndexedDB:
 
         r = self.__db.execute(cmd, (item,))
         if r:
-            value = r[0][0]
+            value: str = r[0][0]
+            jsonized_state: int = r[0][1]
 
-            if self.__supports_jsonization and r[0][1]:
-                value = json.loads(value)
+            if self.__supports_jsonization:
+                if jsonized_state == 1:
+                    value = json.loads(value)
+                elif jsonized_state == 2:
+                    value = pickle.loads(b64decode(value))
 
             return value
         raise KeyError
 
     def __setitem__(self, key: str, value: Any) -> None:
         self.__create_table()
-        jsonize = type(value) is not str
+        jsonized_status = 0
 
-        if jsonize:
+        if type(value) is not str:
             self.__support_jsonization()
-            value = json.dumps(value)
+            try:
+                value = json.dumps(value)
+                jsonized_status = 1
+            except TypeError:
+                value = b64encode(pickle.dumps(value)).decode('ascii')
+                jsonized_status = 2
 
         if self.key_exists(key):
             if self.__test_supports_jsonization():
                 self.__db.execute(f"""
                 UPDATE {self.__table} SET value=?, jsonized=? WHERE key=?
-                """, (value, jsonize, key))
+                """, (value, jsonized_status, key))
             else:
                 self.__db.execute(f"UPDATE {self.__table} SET value=? WHERE key=?", (value, key))
         else:
             if self.__supports_jsonization:
                 self.__db.execute(
-                    f"INSERT INTO {self.__table} (`key`,`value`,`jsonized`) VALUES (?,?,?);", (key, value, jsonize)
+                    f"INSERT INTO {self.__table} (`key`,`value`,`jsonized`) VALUES (?,?,?);", (key, value, jsonized_status)
                 )
             else:
                 self.__db.execute(

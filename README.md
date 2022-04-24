@@ -33,6 +33,11 @@ dictionary['test']['foo'] = 'bar'
 dictionary['test']['list'] = ['1', 2, True]
 print(dictionary['test']['list'])  # prints ['1', 2, True]
 
+# or anything, really (that can be serialized with pickle)
+from threading import Thread
+dictionary['test']['thread'] = Thread
+print(dictionary['test']['thread'])  # prints <class 'threading.Thread'>
+
 # and deleting
 del dictionary['test']['list']  # deletes the record
 del dictionary['test']  # drops whole table
