@@ -98,9 +98,9 @@ class IndexedDB:
         r = self.__db.execute(cmd, (item,))
         if r:
             value: str = r[0][0]
-            jsonized_state: int = r[0][1]
 
             if self.__supports_jsonization:
+                jsonized_state: int = r[0][1]
                 if jsonized_state == 1:
                     value = json.loads(value)
                 elif jsonized_state == 2:
