@@ -1,5 +1,7 @@
 # SQLiteDB
 
+⚠️⚠️ **Project was moved to [sqlidictature](https://github.com/esoadamo/sqlidictature) repo. This repo is kept for old projects with hardcoded path.** ⚠️⚠️
+
 A wrapper for Python's inbuilt SQLite with multithreading support.
 
 ## Installation
